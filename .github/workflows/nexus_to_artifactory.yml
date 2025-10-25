@@ -1,0 +1,66 @@
+name: Nexus to Artifactory Artifact Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      nexus_url:
+        description: 'Nexus repository URL'
+        required: true
+      nexus_repository:
+        description: 'Nexus repository name'
+        required: true
+      artifactory_repository:
+        description: 'Artifactory repository'
+        required: true
+
+jobs:
+  nexus-to-artifactory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Download artifacts from Nexus
+        id: download
+        run: |
+          NEXUS_URL="${{ github.event.inputs.nexus_url }}"
+          NEXUS_REPOSITORY="${{ github.event.inputs.nexus_repository }}"
+          NEXUS_USERNAME="${{ secrets.NEXUS_USERNAME }}"
+          NEXUS_PASSWORD="${{ secrets.NEXUS_PASSWORD }}"
+
+          mkdir -p nexus-artifacts
+
+          continuation_token=""
+          while : ; do
+            if [ -z "$continuation_token" ]; then
+              response=$(curl -s -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" -X GET "$NEXUS_URL/service/rest/v1/components?repository=$NEXUS_REPOSITORY")
+            else
+              response=$(curl -s -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" -X GET "$NEXUS_URL/service/rest/v1/components?repository=$NEXUS_REPOSITORY&continuationToken=$continuation_token")
+            fi
+
+            echo "$response" | jq -r '.items[].assets[].downloadUrl' | while read url; do
+              path=$(echo "$url" | sed "s|$NEXUS_URL/repository/$NEXUS_REPOSITORY/||")
+              dir=$(dirname "$path")
+              mkdir -p "nexus-artifacts/$dir"
+              echo "Downloading $url to nexus-artifacts/$path"
+              curl -s -u "$NEXUS_USERNAME:$NEXUS_PASSWORD" -o "nexus-artifacts/$path" "$url"
+            done
+
+            continuation_token=$(echo "$response" | jq -r '.continuationToken')
+
+            if [ "$continuation_token" == "null" ] || [ -z "$continuation_token" ]; then
+              break
+            fi
+          done
+
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v3
+        env:
+          JF_ENV_ARTIFACTORY: ${{ secrets.JF_ENV_ARTIFACTORY }}
+
+      - name: Upload artifacts to Artifactory
+        run: |
+          jfrog rt u "nexus-artifacts/" "${{ github.event.inputs.artifactory_repository }}/" --recursive=true --flat=false
