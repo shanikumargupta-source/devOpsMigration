@@ -1,0 +1,112 @@
+buildscript {
+
+    def artifactoryUsername = System.getenv("ARTIFACTORY_USER")
+    def artifactoryPassword = System.getenv("ARTIFACTORY_TOKEN")
+
+    repositories {
+        maven {
+            credentials {
+                username = artifactoryUsername
+                password = artifactoryPassword
+            }
+            url "https://artifactory.vodafone.com:443/artifactory/maven-vfgvbit-csi-cove-virtual/"
+        }
+    }
+    dependencies {
+        classpath "com.vf.cove.gradle:com.vf.cove.gradle.covecustom:3.0.0"
+    }
+}
+
+
+plugins {
+    id 'jacoco'
+}
+ext.libraries = [
+        base: [
+           "com.liferay.portal:release.dxp.api",
+           "org.slf4j:slf4j-api",
+           "org.apache.commons:commons-lang3:3.12.0",
+        ],
+        test: [
+			"org.junit.jupiter:junit-jupiter-api:5.10.1",
+			"org.junit.jupiter:junit-jupiter-engine:5.10.1",
+			"org.hamcrest:hamcrest:2.2",
+			"org.mockito:mockito-core:4.11.0",
+			"org.mockito:mockito-junit-jupiter:4.11.0",
+			"org.assertj:assertj-core:3.24.2",
+			"org.slf4j:slf4j-simple:2.0.9",
+            "org.springframework:spring-test:4.3.30.RELEASE",
+            "org.mockito:mockito-inline:4.3.1",
+            'com.vf.cove.platformcore:vf-cove-test-common:4.0.0',
+        ],
+        testExtended:[
+            "pl.pragmatists:JUnitParams:1.1.1"
+        ],
+        cove: [
+            'com.vf.cove.platformcore:com.vf.cove.core.restutils:6.0.0',
+            'com.vf.cove.platformcore:com.vf.cove.core.cacheuitls:2.0.0',
+            'com.vf.cove.platformcore:com.vf.cove.common:4.0.0',
+            'com.vf.cove.platformcore:com.vf.cove.core.xss:2.0.0',
+            'com.vf.cove.platformcore:com.vf.cove.core.ftlutils:2.0.0',
+        ],
+        dbstore: [
+            'com.vf.cove.platformcore:com.vf.cove.db.api:5.0.0'
+        ],
+        email: [
+            'com.vf.cove.platformcore:com.vf.cove.core.email.api:2.0.0'
+        ],
+        covecache: [
+            "org.springframework:spring-context-support:5.3.23",
+            "org.springframework:spring-webmvc:5.3.23",
+            "org.springframework.boot:spring-boot-starter-cache:2.7.3",
+            "javax.cache:cache-api:1.1.1",
+            "com.github.ben-manes.caffeine:caffeine:3.2.0"
+        ]
+]
+
+
+
+allprojects {
+    apply plugin: "com.vf.cove.gradle.covecustom"
+    apply plugin: 'jacoco'
+}
+
+
+subprojects {
+
+    repositories {
+        mavenLocal()
+        maven {
+            credentials {
+                username "$artifactoryUsername"
+                password "$artifactoryPassword"
+            }
+            url "https://artifactory.vodafone.com:443/artifactory/maven-vfgvbit-csi-cove-virtual/"
+        }
+    }
+
+
+}
+
+tasks.register("codeCoverageReport", JacocoReport) {
+    // Gather execution data from all subprojects
+    executionData fileTree(project.rootDir.absolutePath).include("**/build/jacoco/*.exec")
+
+    // Add all relevant sourcesets from the subprojects
+    subprojects.each {
+        sourceSets it.sourceSets.main
+    }
+
+    reports {
+        xml.enabled true
+        html.enabled true
+        csv.enabled false
+    }
+}
+
+if (hasProperty("buildScan")) {
+    buildScan {
+        termsOfServiceUrl = "https://gradle.com/terms-of-service"
+        termsOfServiceAgree = "yes"
+    }
+}

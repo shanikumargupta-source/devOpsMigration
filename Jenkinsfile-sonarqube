@@ -1,0 +1,69 @@
+def WORKSPACE_BUILD_ENVIRONMENTS = [ 'dev' ]
+def PROD_ENVIRONMENT = WORKSPACE_BUILD_ENVIRONMENTS.last()
+
+
+pipeline {
+    agent {
+        label {
+            label "slave"
+            // JOB_NAME will be "<github_repo_name>/<branch>", e.g acme-project/master
+            customWorkspace "/tmp/jenkins-workspace_${JOB_NAME.replace('/', '_')}"
+        }
+    }
+
+    options {
+        timeout(time: 120, unit: 'MINUTES')
+        skipDefaultCheckout true
+        gitLabConnection('vf-gitlab')
+    }
+
+
+    stages {
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+                checkout scm
+            }
+        }
+        stage('Build Framework') {
+            steps {
+                gitlabCommitStatus("build") {
+                  nodejs(nodeJSInstallationName: 'Node-10.15.1', configId: null) {
+                    script {
+                        sh '''
+                           chmod +x gradlew
+                           ./gradlew clean build
+                           '''.stripIndent()
+                    }
+                  }
+                }
+            }
+        }
+
+
+
+        stage('SonarQube static analysis'){
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                  sh '''sonar-scanner
+                          '''.stripIndent()
+                }
+            }
+        }
+
+        stage("Quality Gate") {
+            steps {
+               sleep(40)
+              timeout(time: 2, unit: 'MINUTES') {
+                script {
+                    def qg = waitForQualityGate() // Reuse taskId previously collected by withSonarQubeEnv
+                    if (qg.status != 'OK') {
+                        error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                    }
+                }
+              }
+            }
+        }
+
+    }
+}

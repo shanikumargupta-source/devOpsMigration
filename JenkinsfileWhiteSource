@@ -1,0 +1,77 @@
+pipeline {
+  agent {
+    label {
+      label "slave"
+      customWorkspace "/home/jenkins/workspace/jenkins-workspace_${JOB_NAME.replace('/', '_')}/${gitlabSourceBranch}"
+    }
+  }
+
+  options {
+    skipDefaultCheckout true
+    gitLabConnection('vf-gitlab')
+  }
+  environment {
+    WHITESOURCE_APIKEY = credentials('whitesource-apikey')
+    WHITESOURCE_USERKEY =  credentials('whitesource-userkey')
+  }
+  stages {
+    stage('Workspace') {
+      steps {
+        checkout([$class: 'GitSCM',
+                  branches: [[name: "${gitlabSourceBranch}"]],
+                  doGenerateSubmoduleConfigurations: false,
+                  extensions: scm.extensions,
+                  userRemoteConfigs: scm.userRemoteConfigs
+        ])
+      }
+    }
+   stage('build') {
+       steps {
+         gitlabCommitStatus("build") {
+           script {
+             sh './gradlew build'
+           }
+         }
+       }
+       post {
+         failure {
+           updateGitlabCommitStatus name: 'build', state: 'failed'
+         }
+         success {
+           updateGitlabCommitStatus name: 'build', state: 'success'
+         }
+       }
+     }
+     stage('build rest') {
+       steps {
+         gitlabCommitStatus("Rest builder") {
+           sh './gradlew buildREST'
+         }
+       }
+       post {
+         failure {
+           updateGitlabCommitStatus name: 'Rest builder', state: 'failed'
+         }
+         success {
+           updateGitlabCommitStatus name: 'Rest builder', state: 'success'
+         }
+       }
+     }
+     stage('Download WS Script') {
+       steps {
+        script {
+         sh 'curl -LJO https://github.com/whitesource/unified-agent-distribution/raw/master/standAlone/wss_agent.sh'
+         }
+
+       }
+     }
+     stage('Run WS Script') {
+       steps {
+        script {
+         sh 'chmod +x wss_agent.sh'
+         sh "./wss_agent.sh -apiKey ${env.WHITESOURCE_APIKEY} -project vf-cove-middleware-api -wss_url https://saas-eu.whitesourcesoftware.com/agent -userKey ${env.WHITESOURCE_USERKEY} -c whitesource.config  -d ./"
+         }
+       }
+     }
+    }
+}
